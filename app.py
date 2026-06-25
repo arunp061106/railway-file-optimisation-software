@@ -976,10 +976,11 @@ class RailwayApp(tk.Tk):
 
         path_frame = tk.Frame(card, bg=C["surface2"], padx=10, pady=8)
         path_frame.pack(fill="x", pady=(4, 0))
-        tk.Label(path_frame, text=dest_folder,
-                 bg=C["surface2"], fg="#60A5FA",
-                 font=("Consolas", 9),
-                 wraplength=540, justify="left").pack(anchor="w")
+        path_lbl = tk.Label(path_frame, text=dest_folder,
+                            bg=C["surface2"], fg="#60A5FA",
+                            font=("Consolas", 9),
+                            wraplength=540, justify="left")
+        path_lbl.pack(anchor="w")
 
         # ── Category selector ────────────────────────────────────────────────
         sel = tk.Frame(dlg, bg=C["bg"], padx=20)
@@ -998,9 +999,6 @@ class RailwayApp(tk.Tk):
             new_dest = str(Path(self.cfg["base_folder"]) / (cat_var.get().strip() or cat_result["category"]))
             path_lbl.config(text=new_dest)
         cat_var.trace_add("write", update_path)
-
-        # Update path label reference
-        path_lbl = path_frame.winfo_children()[0]
 
         tk.Label(sel, text="The original file will NOT be deleted. A copy is placed in the folder above.",
                  bg=C["bg"], fg=C["green"],
