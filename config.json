@@ -1,0 +1,13 @@
+{
+    "watch_folder": "C:\\Users\\Paulraj\\Downloads",
+    "base_folder": "C:\\Users\\Paulraj\\Documents\\Railway Files",
+    "excel_log_filename": "Railway_Files_Log.xlsx",
+    "auto_confirm_timeout_seconds": 60,
+    "open_excel_after_update": true,
+    "stable_wait_seconds": 2,
+    "auto_start_with_windows": false,
+    "handle_duplicates": "rename",
+    "show_notifications": true,
+    "min_file_size_bytes": 100,
+    "theme": "dark"
+}

@@ -1,0 +1,3 @@
+@echo off
+title Installing Railway File Organiser...
+powershell -ExecutionPolicy Bypass -File "%~dp0INSTALL.ps1"

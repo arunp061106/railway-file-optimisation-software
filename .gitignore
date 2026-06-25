@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.env
+venv/
+env/
+
+# PyInstaller build outputs
+build/
+dist/
+*.spec
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,91 @@
+{
+    "categories": {
+        "Tenders": {
+            "keywords": ["tender", "tdr", "nit", "rfp", "bid", "quotation", "quot", "enquiry", "enq", "auction", "procurement", "supply", "rate_contract", "rc_", "limited_tender", "open_tender", "global_tender", "e-tender", "etender", "lt_", "ot_"],
+            "extensions": [],
+            "color": "#FF6B35"
+        },
+        "Circulars": {
+            "keywords": ["circular", "cir", "notification", "notif", "gazette", "order", "instruction", "directive", "advisory", "bulletin", "notice", "amendment", "corrigendum", "corrig", "addendum"],
+            "extensions": [],
+            "color": "#4ECDC4"
+        },
+        "Reports": {
+            "keywords": ["report", "rpt", "mpr", "apr", "dpr", "monthly", "annual", "quarterly", "weekly", "daily", "summary", "review", "analysis", "inspection", "audit", "survey", "assessment", "progress", "status"],
+            "extensions": [],
+            "color": "#45B7D1"
+        },
+        "Schedules": {
+            "keywords": ["schedule", "sched", "timetable", "tt", "roster", "duty", "plan", "programme", "program", "calendar", "timing", "slot", "working_hours", "shift"],
+            "extensions": [],
+            "color": "#96CEB4"
+        },
+        "Budget & Finance": {
+            "keywords": ["budget", "finance", "financial", "estimate", "sanction", "allotment", "expenditure", "expense", "account", "bill", "invoice", "payment", "voucher", "cash", "fund", "allocation", "grant", "receipt", "ledger", "balance", "salary", "pay", "wage", "allowance"],
+            "extensions": [],
+            "color": "#FFEAA7"
+        },
+        "Technical Drawings": {
+            "keywords": ["drawing", "dwg", "drg", "design", "blueprint", "layout", "schematic", "diagram", "plan", "section", "elevation", "detail", "assembly", "gad", "general_arrangement", "signal", "signalling", "track", "gauge"],
+            "extensions": [".dwg", ".dxf", ".dgn", ".rvt"],
+            "color": "#DDA0DD"
+        },
+        "Correspondence": {
+            "keywords": ["letter", "lr", "do", "demi", "memo", "correspondence", "reply", "ref", "reminder", "followup", "follow_up", "response", "communication", "message", "email"],
+            "extensions": [],
+            "color": "#F0A500"
+        },
+        "Policy & Rules": {
+            "keywords": ["policy", "rule", "regulation", "manual", "handbook", "guideline", "guide", "code", "act", "law", "procedure", "sop", "standard", "specification", "spec", "ir_", "irc", "para", "clause"],
+            "extensions": [],
+            "color": "#E17055"
+        },
+        "Minutes of Meeting": {
+            "keywords": ["minutes", "mom", "meeting", "conference", "discussion", "proceeding", "agenda", "action_taken", "atr", "decision"],
+            "extensions": [],
+            "color": "#74B9FF"
+        },
+        "Contracts & Agreements": {
+            "keywords": ["contract", "agreement", "mou", "work_order", "wo_", "loi", "letter_of_intent", "lease", "deed", "bond", "guarantee", "indemnity", "arbitration"],
+            "extensions": [],
+            "color": "#A29BFE"
+        },
+        "Safety & Accident": {
+            "keywords": ["safety", "accident", "incident", "inquiry", "enquiry", "crash", "derailment", "derail", "collision", "fire", "emergency", "risk", "hazard", "sar", "investigation"],
+            "extensions": [],
+            "color": "#FF7675"
+        },
+        "Staff & HR": {
+            "keywords": ["staff", "hr", "personnel", "employee", "service", "posting", "transfer", "promotion", "leave", "absence", "appointment", "recruitment", "joining", "resignation", "retirement", "seniority", "roster", "training", "deputation"],
+            "extensions": [],
+            "color": "#55EFC4"
+        },
+        "Zonal & Divisional Orders": {
+            "keywords": ["zonal", "divisional", "division", "zone", "headquarters", "hq", "railway_board", "board_order", "rb_", "general_manager", "gm_", "drm", "srm", "com", "cste", "ccm", "cpm"],
+            "extensions": [],
+            "color": "#FDCB6E"
+        },
+        "Spreadsheets & Data": {
+            "keywords": ["data", "database", "sheet", "register", "list", "stock", "inventory", "asset", "record", "muster", "roll"],
+            "extensions": [".xlsx", ".xls", ".csv", ".ods"],
+            "color": "#00B894"
+        },
+        "Presentations": {
+            "keywords": ["presentation", "ppt", "slide", "briefing", "overview", "intro", "proposal"],
+            "extensions": [".ppt", ".pptx", ".odp"],
+            "color": "#E84393"
+        },
+        "Images & Photos": {
+            "keywords": ["photo", "image", "picture", "pic", "snap", "scan", "scanned"],
+            "extensions": [".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".gif", ".webp", ".heic"],
+            "color": "#6C5CE7"
+        },
+        "Compressed Files": {
+            "keywords": ["zip", "archive", "backup"],
+            "extensions": [".zip", ".rar", ".7z", ".tar", ".gz"],
+            "color": "#B2BEC3"
+        }
+    },
+    "default_category": "Miscellaneous",
+    "version": "1.0"
+}
