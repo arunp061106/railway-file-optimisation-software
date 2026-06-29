@@ -24,10 +24,29 @@ sys.path.insert(0, str(Path(__file__).parent))
 from categoriser import Categoriser
 from excel_logger import ExcelLogger
 
-# ── Source and destination ────────────────────────────────────────────────────
-SOURCE_FOLDER = r"\\KRILLOPAUL\Users\Paulraj\Downloads\PROJECT work\_TELEGRAM DESKTOP"
-BASE_FOLDER   = r"\\KRILLOPAUL\Users\Paulraj\Downloads\PROJECT work"
-EXCEL_LOG     = os.path.join(BASE_FOLDER, "_ALL FOLDERS RECORD", "Railway_Files_Log.xlsx")
+# ── Source and destination loaded dynamically ────────────────────────────────
+config_path = Path(__file__).parent / "config.json"
+watch_folder = ""
+base_folder = ""
+
+if config_path.exists():
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        watch_folder = cfg.get("watch_folder", "")
+        base_folder = cfg.get("base_folder", "")
+    except Exception:
+        pass
+
+if not watch_folder:
+    watch_folder = str(Path.home() / "Downloads")
+if not base_folder:
+    base_folder = str(Path.home() / "Documents" / "Railway Files")
+
+SOURCE_FOLDER = watch_folder
+BASE_FOLDER   = base_folder
+EXCEL_LOG     = os.path.join(BASE_FOLDER, "Railway_Files_Log.xlsx")
+
 
 # ── Map your existing folder names to category names for smart matching ────────
 EXISTING_FOLDER_MAP = {

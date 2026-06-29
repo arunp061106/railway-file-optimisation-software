@@ -77,9 +77,75 @@ class FileMover:
                 "error": f"Source file not found: {source_path}"
             }
 
-        # Sanitise category name for use as folder name
-        safe_category = self._sanitise_folder_name(category)
-        target_folder = self.base_folder / safe_category
+    def find_matching_folder(self, category: str) -> tuple:
+        """
+        Scan base_folder for matches.
+        Returns: (folder_name, matched_existing)
+        """
+        if not self.base_folder.exists():
+            return self._sanitise_folder_name(category), False
+
+        target_clean = self._sanitise_folder_name(category).lower().strip()
+        if not target_clean:
+            return "MISCELLANEOUS FILES", False
+
+        try:
+            existing_dirs = [d.name for d in self.base_folder.iterdir() if d.is_dir()]
+        except Exception:
+            existing_dirs = []
+
+        # 1. Exact match (case-insensitive)
+        for d in existing_dirs:
+            if d.lower().strip() == target_clean:
+                return d, True
+                
+        # 2. Substring match (starts with / contains)
+        # Avoid matching extremely short folder names to prevent false positives
+        for d in existing_dirs:
+            d_clean = d.lower().strip()
+            if len(target_clean) >= 3 or len(d_clean) >= 3:
+                if target_clean in d_clean or d_clean in target_clean:
+                    return d, True
+
+        return self._sanitise_folder_name(category), False
+
+    def move(self, source_path: str, category: str) -> dict:
+        """
+        COPY a file to the correct category folder under base_folder.
+        Original file is kept in place (copy, not move/cut).
+
+        Args:
+            source_path: Full path to the file to be copied.
+            category: Category name (becomes the subfolder name).
+
+        Returns:
+            dict with:
+                - success (bool)
+                - destination (str): Final path where file was copied
+                - was_renamed (bool): True if filename had to be changed to avoid clash
+                - original_filename (str)
+                - final_filename (str)
+                - matched_existing (bool)
+                - resolved_category (str)
+                - error (str): Error message if success is False
+        """
+        source = Path(source_path)
+
+        if not source.exists():
+            return {
+                "success": False,
+                "destination": None,
+                "was_renamed": False,
+                "original_filename": source.name,
+                "final_filename": None,
+                "matched_existing": False,
+                "resolved_category": category,
+                "error": f"Source file not found: {source_path}"
+            }
+
+        # Sanitise and find matching folder
+        resolved_category, matched_existing = self.find_matching_folder(category)
+        target_folder = self.base_folder / resolved_category
         self._ensure_folder(target_folder)
 
         destination = self._resolve_destination(target_folder, source.name)
@@ -93,6 +159,8 @@ class FileMover:
                 "was_renamed": was_renamed,
                 "original_filename": source.name,
                 "final_filename": destination.name,
+                "matched_existing": matched_existing,
+                "resolved_category": resolved_category,
                 "error": None
             }
         except PermissionError as e:
@@ -102,6 +170,8 @@ class FileMover:
                 "was_renamed": False,
                 "original_filename": source.name,
                 "final_filename": None,
+                "matched_existing": matched_existing,
+                "resolved_category": resolved_category,
                 "error": f"Permission denied: {e}"
             }
         except Exception as e:
@@ -111,6 +181,8 @@ class FileMover:
                 "was_renamed": False,
                 "original_filename": source.name,
                 "final_filename": None,
+                "matched_existing": matched_existing,
+                "resolved_category": resolved_category,
                 "error": str(e)
             }
 
@@ -122,9 +194,9 @@ class FileMover:
         return name.strip()
 
     def get_category_folder(self, category: str) -> str:
-        """Return the full path to a category folder (may not exist yet)."""
-        safe_category = self._sanitise_folder_name(category)
-        return str(self.base_folder / safe_category)
+        """Return the full path to a category folder (may not exist yet). Uses smart matching."""
+        resolved, _ = self.find_matching_folder(category)
+        return str(self.base_folder / resolved)
 
     def list_categories(self) -> list:
         """Return list of existing category folder names under base_folder."""

@@ -68,6 +68,28 @@ from file_watcher import FileWatcher
 from file_mover   import FileMover
 from excel_logger import ExcelLogger
 
+def find_subject_excel(subject_folder: Path, subject_name: str) -> Path:
+    """
+    Search the subject folder for any existing .xlsx file (excluding temp files like ~$*.xlsx).
+    If found, return the path to the first one.
+    Otherwise, return the default: subject_folder / f"{subject_name}_Log.xlsx"
+    """
+    if not subject_folder.exists():
+         return subject_folder / f"{subject_name}_Log.xlsx"
+         
+    xlsx_files = []
+    try:
+        for p in subject_folder.iterdir():
+            if p.is_file() and p.suffix.lower() == ".xlsx" and not p.name.startswith("~$"):
+                xlsx_files.append(p)
+    except Exception:
+        pass
+            
+    if xlsx_files:
+        return xlsx_files[0]
+    return subject_folder / f"{subject_name}_Log.xlsx"
+
+
 # ── Logging ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
     filename=str(BASE_DIR / "organiser.log"),
@@ -118,6 +140,7 @@ class Config:
         "auto_confirm_timeout_seconds": 60,
         "open_excel_after_update": True,
         "stable_wait_seconds": 2,
+        "auto_start_watching": True,
     }
 
     def __init__(self):
@@ -233,6 +256,11 @@ class RailwayApp(tk.Tk):
         # Tab 2: File Register
         self.tab_register = tk.Frame(self.notebook, bg=C["bg"])
         self.notebook.add(self.tab_register, text="  📂 File Register  ")
+        
+        # Tab 3: Folder Manager
+        self.tab_folders = tk.Frame(self.notebook, bg=C["bg"])
+        self.notebook.add(self.tab_folders, text="  📁 Folder Manager  ")
+        self._build_folder_tab(self.tab_folders)
         
         # ── Tab 1: Dashboard content (two columns) ───────────────────────────
         content = tk.Frame(self.tab_dashboard, bg=C["bg"])
@@ -424,6 +452,14 @@ class RailwayApp(tk.Tk):
                           "Files go here after sorting", self._base_var,
                           lambda: self._pick_folder(self._base_var))
 
+        # Checkbox for auto-start
+        self._auto_start_var = tk.BooleanVar(value=self.cfg["auto_start_watching"])
+        chk = tk.Checkbutton(card, text="Start watching automatically on launch",
+                             variable=self._auto_start_var, bg=C["surface"], fg=C["text"],
+                             selectcolor=C["surface2"], activebackground=C["surface"],
+                             font=FONT_SMALL, relief="flat", activeforeground=C["text"])
+        chk.pack(anchor="w", pady=(10, 0))
+
         # Save button
         tk.Button(card, text="Save Folders",
                   bg=C["accent"], fg=C["white"],
@@ -456,6 +492,25 @@ class RailwayApp(tk.Tk):
                      padx=4, pady=1).pack(side="left")
             tk.Label(row, text=f"  {text}", bg=C["surface"],
                      fg=C["text"], font=("Segoe UI", 10)).pack(side="left")
+
+        # ── System Stats Card ──────────────────────────────────────────────────
+        self._stats_frame = tk.Frame(frame, bg=C["surface"], padx=18, pady=14,
+                                      highlightbackground=C["border"], highlightthickness=1)
+        self._stats_frame.pack(fill="x", pady=(12, 0))
+        
+        tk.Label(self._stats_frame, text="System Statistics",
+                 bg=C["surface"], fg=C["text2"],
+                 font=FONT_BADGE).pack(anchor="w", pady=(0, 8))
+                 
+        self._stats_total_lbl = tk.Label(self._stats_frame, text="Total Files Organised: Loading...",
+                                         bg=C["surface"], fg=C["text"],
+                                         font=("Segoe UI", 10, "bold"))
+        self._stats_total_lbl.pack(anchor="w", pady=2)
+        
+        self._stats_top_lbl = tk.Label(self._stats_frame, text="Top Categories:\n- Loading...",
+                                       bg=C["surface"], fg=C["text2"],
+                                       font=("Segoe UI", 9), justify="left")
+        self._stats_top_lbl.pack(anchor="w", pady=(4, 0))
 
         # ── Categories summary ────────────────────────────────────────────────
         cat_frame = tk.Frame(frame, bg=C["surface"], padx=18, pady=14,
@@ -680,6 +735,8 @@ class RailwayApp(tk.Tk):
             self._reg_warn_lbl.config(text=f"⚠️ WARNING: {data['missing']} file(s) missing from folders! ")
         else:
             self._reg_warn_lbl.config(text="✅ All files successfully verified! ")
+
+        self._update_dashboard_stats()
 
     def _confirm_and_rebuild_log(self):
         """Ask for user permission before rewriting the Excel log."""
@@ -948,9 +1005,11 @@ class RailwayApp(tk.Tk):
         logger = ExcelLogger(self.cfg.log_path(),
                              open_after_update=False)
 
-        files = [f for f in os.listdir(src_folder)
-                 if os.path.isfile(os.path.join(src_folder, f))
-                 and Path(f).suffix.lower() not in SKIP]
+        files = []
+        for root, dirs, filenames in os.walk(src_folder):
+            for fname in filenames:
+                if Path(fname).suffix.lower() not in SKIP:
+                    files.append(os.path.join(root, fname))
 
         if not files:
             self._ui_queue.put(("info", "No files found in selected folder."))
@@ -960,12 +1019,12 @@ class RailwayApp(tk.Tk):
 
         # Build map
         file_map = []
-        for fname in files:
-            src = os.path.join(src_folder, fname)
-            result = self.cat.categorise(src)
+        for filepath in files:
+            fname = os.path.basename(filepath)
+            result = self.cat.categorise(filepath)
             file_map.append({
                 "filename": fname,
-                "src_path": src,
+                "src_path": filepath,
                 "category": result["category"],
                 "confidence": result["confidence"]
             })
@@ -996,15 +1055,59 @@ class RailwayApp(tk.Tk):
     def _save_folders(self):
         self.cfg["watch_folder"] = self._watch_var.get().strip()
         self.cfg["base_folder"]  = self._base_var.get().strip()
+        self.cfg["auto_start_watching"] = self._auto_start_var.get()
         self.cfg.save()
         Path(self.cfg["base_folder"]).mkdir(parents=True, exist_ok=True)
         self._refresh_status()
         self._log("Folders saved.", "ok")
+        self._update_dashboard_stats()
+        self._refresh_folders_tree()
         messagebox.showinfo("Saved", "Folder settings saved successfully!")
 
     # ══════════════════════════════════════════════════════════════════════════
     # FILE PROCESSING PIPELINE
     # ══════════════════════════════════════════════════════════════════════════
+    def _get_all_category_choices(self) -> list:
+        """Combine AI categories from categories.json with actual folders on disk."""
+        choices = set(self.cat.get_all_categories())
+        base = Path(self.cfg["base_folder"])
+        if base.exists():
+            try:
+                for d in base.iterdir():
+                    if d.is_dir():
+                        choices.add(d.name)
+            except Exception:
+                pass
+        return sorted(list(choices))
+
+    def _update_dashboard_stats(self):
+        """Update total file count and top categories from Excel register."""
+        try:
+            logger = ExcelLogger(self.cfg.log_path(), open_after_update=False)
+            entries = logger.read_log()
+        except Exception:
+            entries = []
+
+        total_files = len(entries)
+        self._stats_total_lbl.config(text=f"Total Files Organised: {total_files}")
+
+        if not entries:
+            self._stats_top_lbl.config(text="Top Categories:\n  No files organised yet.")
+            return
+
+        cat_counts = {}
+        for entry in entries:
+            cat = entry.get("category", "MISCELLANEOUS FILES")
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+
+        sorted_cats = sorted(cat_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        top_str = "Top Categories:\n"
+        for i, (cat, count) in enumerate(sorted_cats, start=1):
+            top_str += f"  {i}. {cat} ({count} files)\n"
+        
+        self._stats_top_lbl.config(text=top_str.strip())
+
     def _process_file(self, filepath: str):
         """Called when a new file is ready. Shows confirm dialog."""
         try:
@@ -1122,15 +1225,36 @@ class RailwayApp(tk.Tk):
                  bg=C["bg"], fg=C["text"],
                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
 
+        # Check if folder already exists on disk
+        mover = FileMover(self.cfg["base_folder"])
+        _, matched_existing = mover.find_matching_folder(cat_result["category"])
+        
+        badge_text = "📁 Existing Subject Folder" if matched_existing else "🆕 New Folder Will Be Created"
+        badge_bg = C["green"] if matched_existing else C["yellow"]
+        badge_fg = C["white"] if matched_existing else C["bg"]
+        
+        self._badge_lbl = tk.Label(card, text=f"  {badge_text}  ",
+                                   bg=badge_bg, fg=badge_fg,
+                                   font=("Segoe UI", 9, "bold"), padx=4, pady=2)
+        self._badge_lbl.pack(anchor="w", pady=(8, 0))
+
         cat_var = tk.StringVar(value=cat_result["category"])
-        all_cats = self.cat.get_all_categories()
+        all_cats = self._get_all_category_choices()
         combo = ttk.Combobox(sel, textvariable=cat_var, values=all_cats,
                               font=("Segoe UI", 10), width=44, state="normal")
         combo.pack(anchor="w")
 
         def update_path(*_):
-            new_dest = str(Path(self.cfg["base_folder"]) / (cat_var.get().strip() or cat_result["category"]))
+            chosen = cat_var.get().strip() or cat_result["category"]
+            new_dest = str(Path(self.cfg["base_folder"]) / chosen)
             path_lbl.config(text=new_dest)
+            
+            _, is_match = mover.find_matching_folder(chosen)
+            b_text = "📁 Existing Subject Folder" if is_match else "🆕 New Folder Will Be Created"
+            b_bg = C["green"] if is_match else C["yellow"]
+            b_fg = C["white"] if is_match else C["bg"]
+            self._badge_lbl.config(text=f"  {b_text}  ", bg=b_bg, fg=b_fg)
+
         cat_var.trace_add("write", update_path)
 
         tk.Label(sel,
@@ -1224,6 +1348,21 @@ class RailwayApp(tk.Tk):
                        result["final_filename"],
                        category,
                        result["destination"])
+            
+            # Log to subject Excel
+            try:
+                resolved_dir = Path(result["destination"]).parent
+                resolved_name = resolved_dir.name
+                subject_excel_path = find_subject_excel(resolved_dir, resolved_name)
+                
+                subject_logger = ExcelLogger(str(subject_excel_path), open_after_update=False)
+                subject_logger.log(result["original_filename"],
+                                   result["final_filename"],
+                                   category,
+                                   result["destination"])
+            except Exception as e:
+                logging.error(f"Subject logging failed: {e}")
+
             self._ui_queue.put(("ok",    f"{filename}  copied to  {category}"))
             self._ui_queue.put(("count", 1))
             self._ui_queue.put(("refresh_register", None))
@@ -1255,6 +1394,19 @@ class RailwayApp(tk.Tk):
             if r["success"]:
                 logger.log(r["original_filename"], r["final_filename"],
                            item["category"], r["destination"])
+                           
+                # Log to subject Excel
+                try:
+                    resolved_dir = Path(r["destination"]).parent
+                    resolved_name = resolved_dir.name
+                    subject_excel_path = find_subject_excel(resolved_dir, resolved_name)
+                    
+                    subject_logger = ExcelLogger(str(subject_excel_path), open_after_update=False)
+                    subject_logger.log(r["original_filename"], r["final_filename"],
+                                       item["category"], r["destination"])
+                except Exception as e:
+                    logging.error(f"Subject batch logging failed: {e}")
+
                 self._ui_queue.put(("ok", f"{item['filename'][:45]}  ->  {item['category']}"))
                 ok += 1
             else:
@@ -1319,7 +1471,7 @@ class RailwayApp(tk.Tk):
                      font=FONT_BADGE, width=w, anchor="w",
                      padx=8, pady=5).grid(row=0, column=col, sticky="ew", padx=1, pady=1)
 
-        all_cats = self.cat.get_all_categories()
+        all_cats = self._get_all_category_choices()
         cat_vars = []
 
         for i, item in enumerate(file_map, 1):
@@ -1546,6 +1698,222 @@ class RailwayApp(tk.Tk):
         messagebox.showerror("Railway File Organiser — ERROR", message)
 
 
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # FOLDER MANAGER TAB
+    # ══════════════════════════════════════════════════════════════════════════
+    def _build_folder_tab(self, parent):
+        frame = tk.Frame(parent, bg=C["bg"], pady=10)
+        frame.pack(fill="both", expand=True)
+
+        layout = tk.Frame(frame, bg=C["bg"])
+        layout.pack(fill="both", expand=True)
+        layout.columnconfigure(0, weight=3)
+        layout.columnconfigure(1, weight=1)
+        layout.rowconfigure(0, weight=1)
+
+        tree_frame = tk.Frame(layout, bg=C["bg"])
+        tree_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
+
+        columns = ("name", "count", "path")
+        self._folders_tree = ttk.Treeview(tree_frame, columns=columns, show="headings", selectmode="browse")
+        self._folders_tree.heading("name", text="Folder / Category Name")
+        self._folders_tree.heading("count", text="File Count")
+        self._folders_tree.heading("path", text="Full Path")
+
+        self._folders_tree.column("name", width=200, anchor="w")
+        self._folders_tree.column("count", width=100, anchor="center")
+        self._folders_tree.column("path", width=300, anchor="w")
+
+        vsb = ttk.Scrollbar(tree_frame, orient="vertical", command=self._folders_tree.yview)
+        hsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self._folders_tree.xview)
+        self._folders_tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        self._folders_tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
+        tree_frame.columnconfigure(0, weight=1)
+        tree_frame.rowconfigure(0, weight=1)
+
+        actions = tk.Frame(layout, bg=C["surface"], padx=16, pady=16,
+                           highlightbackground=C["border"], highlightthickness=1)
+        actions.grid(row=0, column=1, sticky="nsew")
+
+        tk.Label(actions, text="Folder Actions", bg=C["surface"], fg=C["text2"], font=FONT_BADGE).pack(anchor="w", pady=(0, 15))
+
+        tk.Button(actions, text="➕  Add New Folder", bg=C["green"], fg="#FFFFFF",
+                  font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=10, pady=8,
+                  command=self._add_folder).pack(fill="x", pady=(0, 10))
+
+        tk.Button(actions, text="✏️  Rename Selected", bg=C["accent"], fg=C["white"],
+                  font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=10, pady=8,
+                  command=self._rename_folder).pack(fill="x", pady=(0, 10))
+
+        tk.Button(actions, text="🗑️  Delete Selected", bg=C["red"], fg=C["white"],
+                  font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=10, pady=8,
+                  command=self._delete_folder).pack(fill="x", pady=(0, 10))
+
+        tk.Button(actions, text="📂  Open in Explorer", bg=C["surface2"], fg=C["text"],
+                  font=("Segoe UI", 10, "bold"), relief="flat", cursor="hand2", padx=10, pady=8,
+                  command=self._open_folder_in_explorer).pack(fill="x", pady=(0, 10))
+
+        tk.Button(actions, text="🔄  Refresh List", bg=C["border"], fg=C["text2"],
+                  font=("Segoe UI", 10), relief="flat", cursor="hand2", padx=10, pady=8,
+                  command=self._refresh_folders_tree).pack(fill="x", pady=(0, 10))
+
+        self.after(600, self._refresh_folders_tree)
+
+    def _refresh_folders_tree(self):
+        """Re-scan base_folder and update the folder Treeview."""
+        self._folders_tree.delete(*self._folders_tree.get_children())
+        base = Path(self.cfg["base_folder"])
+        if not base.exists():
+            return
+
+        try:
+            subdirs = sorted([d for d in base.iterdir() if d.is_dir()])
+        except Exception as e:
+            self._log(f"Error reading folders: {e}", "warn")
+            return
+
+        for idx, d in enumerate(subdirs):
+            try:
+                files_count = len([f for f in d.iterdir() if f.is_file()])
+            except Exception:
+                files_count = 0
+            
+            self._folders_tree.insert(
+                "",
+                "end",
+                iid=str(d),
+                values=(d.name, f"{files_count} files", str(d))
+            )
+
+    def _add_folder(self):
+        from tkinter import simpledialog
+        name = simpledialog.askstring("Add New Folder", "Enter name for new subject folder:", parent=self)
+        if not name:
+            return
+        name = name.strip()
+        invalid = r'\/:*?"<>|'
+        for ch in invalid:
+            if ch in name:
+                messagebox.showerror("Invalid Name", f"Folder name cannot contain: {invalid}")
+                return
+        
+        base = Path(self.cfg["base_folder"])
+        new_dir = base / name
+        if new_dir.exists():
+            messagebox.showerror("Error", "Folder already exists.")
+            return
+            
+        try:
+            new_dir.mkdir(parents=True, exist_ok=True)
+            self._log(f"Created new folder: {name}", "ok")
+            self._refresh_folders_tree()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to create folder:\n{e}")
+
+    def _rename_folder(self):
+        selected = self._folders_tree.selection()
+        if not selected:
+            messagebox.showwarning("Selection Required", "Please select a folder to rename.")
+            return
+
+        old_path_str = selected[0]
+        old_path = Path(old_path_str)
+        old_name = old_path.name
+
+        from tkinter import simpledialog
+        new_name = simpledialog.askstring("Rename Folder", f"Enter new name for folder '{old_name}':", initialvalue=old_name, parent=self)
+        if not new_name:
+            return
+
+        new_name = new_name.strip()
+        invalid = r'\/:*?"<>|'
+        for ch in invalid:
+            if ch in new_name:
+                messagebox.showerror("Invalid Name", f"Folder name cannot contain: {invalid}")
+                return
+
+        new_path = old_path.parent / new_name
+        if new_path.exists():
+            messagebox.showerror("Error", f"A folder named '{new_name}' already exists.")
+            return
+
+        try:
+            os.rename(old_path, new_path)
+            self._log(f"Renamed folder: {old_name} -> {new_name}", "ok")
+            
+            logger = ExcelLogger(self.cfg.log_path(), open_after_update=False)
+            entries = logger.read_log()
+            if entries:
+                updated = False
+                for entry in entries:
+                    if entry["category"] == old_name:
+                        entry["category"] = new_name
+                        updated = True
+                    old_dir_part = f"\\{old_name}\\"
+                    new_dir_part = f"\\{new_name}\\"
+                    if old_dir_part in entry["path"]:
+                        entry["path"] = entry["path"].replace(old_dir_part, new_dir_part)
+                        updated = True
+                    elif entry["path"].endswith(f"\\{old_name}"):
+                        entry["path"] = entry["path"][:-len(old_name)] + new_name
+                        updated = True
+                
+                if updated:
+                    res = logger.write_all_entries(entries)
+                    if res["success"]:
+                        self._log("Updated references in Master File Register.", "ok")
+                    else:
+                        self._log(f"Failed to update Excel references: {res['error']}", "warn")
+            
+            self._refresh_folders_tree()
+            self._load_and_verify_register()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to rename folder:\n{e}")
+
+    def _delete_folder(self):
+        selected = self._folders_tree.selection()
+        if not selected:
+            messagebox.showwarning("Selection Required", "Please select a folder to delete.")
+            return
+
+        folder_path = Path(selected[0])
+        folder_name = folder_path.name
+
+        try:
+            files = list(folder_path.iterdir())
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not read folder contents:\n{e}")
+            return
+
+        if files:
+            confirm = messagebox.askyesno(
+                "Warning: Folder Not Empty",
+                f"The folder '{folder_name}' contains {len(files)} files.\n\n"
+                "Are you sure you want to permanently delete this folder and ALL its contents?",
+                icon="warning"
+            )
+            if not confirm:
+                return
+
+        try:
+            shutil.rmtree(folder_path)
+            self._log(f"Deleted folder and contents: {folder_name}", "warn")
+            self._refresh_folders_tree()
+            self._load_and_verify_register()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to delete folder:\n{e}")
+
+    def _open_folder_in_explorer(self):
+        selected = self._folders_tree.selection()
+        if not selected:
+            messagebox.showwarning("Selection Required", "Please select a folder to open.")
+            return
+        os.startfile(selected[0])
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FIRST-RUN SETUP — Toplevel on same root. Only ONE tk.Tk() ever created!
