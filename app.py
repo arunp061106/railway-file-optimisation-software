@@ -870,16 +870,38 @@ class RailwayApp(tk.Tk):
 
     def _test_popup(self):
         """Show a test popup to verify the alert system works on this machine."""
+        self._log("Testing popup system...", "info")
+        # Step 1: try simple messagebox first
+        try:
+            result = messagebox.askquestion(
+                "POPUP TEST - Step 1",
+                "If you can read this, basic dialogs work!\n\n"
+                "Click YES to also test the full file-detection popup.\n"
+                "Click NO to cancel.",
+                icon="question"
+            )
+            if result != "yes":
+                self._log("Test cancelled by user.", "warn")
+                return
+        except Exception as e:
+            self._log(f"ERROR: Even messagebox failed: {e}", "warn")
+            return
+
+        # Step 2: try the full custom popup
         import tempfile
-        # Create a dummy temp file for the test
-        tmp = Path(tempfile.gettempdir()) / "TEST_Railway_popup_demo.pdf"
-        tmp.write_text("test", encoding="utf-8")
-        fake_result = {
-            "category": "TEST CATEGORY",
-            "confidence": 0.99
-        }
-        self._show_confirm_dialog(str(tmp), tmp.name, fake_result)
-        self._log("Test popup launched — check if the popup appeared!", "info")
+        try:
+            tmp = Path(tempfile.gettempdir()) / "TEST_Railway_popup_demo.pdf"
+            tmp.write_text("test", encoding="utf-8")
+            fake_result = {"category": "TEST CATEGORY", "confidence": 0.99}
+            self._show_confirm_dialog(str(tmp), tmp.name, fake_result)
+            self._log("Full popup launched - check if it appeared!", "info")
+        except Exception as e:
+            import traceback
+            self._log(f"POPUP ERROR: {e}", "warn")
+            messagebox.showerror("Popup Failed",
+                f"The full popup failed with error:\n{e}\n\n"
+                f"Basic messageboxes work. The Toplevel popup has a bug.\n\n"
+                f"{traceback.format_exc()}")
 
     def _start_watching(self):
         folder = self.cfg["watch_folder"]
@@ -985,11 +1007,21 @@ class RailwayApp(tk.Tk):
     # ══════════════════════════════════════════════════════════════════════════
     def _process_file(self, filepath: str):
         """Called when a new file is ready. Shows confirm dialog."""
-        filename = Path(filepath).name
-        result   = self.cat.categorise(filepath)
-
-        # Show inline confirm dialog
-        self._show_confirm_dialog(filepath, filename, result)
+        try:
+            filename = Path(filepath).name
+            self._log(f"Processing: {filename}", "info")
+            result = self.cat.categorise(filepath)
+            self._show_confirm_dialog(filepath, filename, result)
+        except Exception as e:
+            import traceback
+            err = traceback.format_exc()
+            self._log(f"ERROR showing popup for {Path(filepath).name}: {e}", "warn")
+            logging.error(f"_process_file failed: {err}")
+            try:
+                messagebox.showerror("File Organiser - Error",
+                    f"Could not show popup for:\n{Path(filepath).name}\n\nError: {e}")
+            except Exception:
+                pass
 
     def _show_confirm_dialog(self, filepath, filename, cat_result):
         """Unmissable popup — forces itself to the front on Windows 10/11."""
@@ -997,7 +1029,7 @@ class RailwayApp(tk.Tk):
         is_test = filename.startswith("TEST_Railway_popup_demo")
 
         dlg = tk.Toplevel(self)
-        dlg.title("🔔 NEW FILE DETECTED — Railway File Organiser")
+        dlg.title("NEW FILE DETECTED - Railway File Organiser")
         dlg.configure(bg=C["bg"])
         dlg.resizable(False, False)
 
@@ -1378,40 +1410,49 @@ class RailwayApp(tk.Tk):
         """Poll the thread-safe queue and update UI from main thread."""
         try:
             while True:
-                msg = self._ui_queue.get_nowait()
+                try:
+                    msg = self._ui_queue.get_nowait()
+                except queue.Empty:
+                    break
+
                 kind, data = msg
-
-                if kind == "new_file":
-                    self._log(f"Detected: {Path(data).name}", "file")
-                    self._process_file(data)
-                elif kind == "ok":
-                    self._log(data, "ok")
-                elif kind == "warn":
-                    self._log(data, "warn")
-                elif kind == "info":
-                    self._log(data, "info")
-                elif kind == "count":
-                    self._today_count += data
-                    self._count_lbl.config(text=f" {self._today_count} ")
-                elif kind == "batch_preview":
-                    self._show_batch_preview(data)
-                elif kind == "show_success":
-                    self._show_success_popup(data)
-                elif kind == "show_error":
-                    self._show_error_popup(data)
-                elif kind == "register_data":
-                    self._display_register_data(data)
-                elif kind == "rebuild_success":
-                    messagebox.showinfo("Excel Log Rebuilt", 
-                                        f"Excel File Register successfully rebuilt!\n"
-                                        f"Found and logged {data} file(s) present on disk.")
-                elif kind == "refresh_register":
-                    self._load_and_verify_register()
-
-        except queue.Empty:
-            pass
-
-        self.after(200, self._poll_ui_queue)
+                try:
+                    if kind == "new_file":
+                        self._log(f"Detected: {Path(data).name}", "file")
+                        self._process_file(data)
+                    elif kind == "ok":
+                        self._log(data, "ok")
+                    elif kind == "warn":
+                        self._log(data, "warn")
+                    elif kind == "info":
+                        self._log(data, "info")
+                    elif kind == "count":
+                        self._today_count += data
+                        self._count_lbl.config(text=f" {self._today_count} ")
+                    elif kind == "batch_preview":
+                        self._show_batch_preview(data)
+                    elif kind == "show_success":
+                        self._show_success_popup(data)
+                    elif kind == "show_error":
+                        self._show_error_popup(data)
+                    elif kind == "register_data":
+                        self._display_register_data(data)
+                    elif kind == "rebuild_success":
+                        messagebox.showinfo("Excel Log Rebuilt",
+                                            f"Excel File Register rebuilt!\n"
+                                            f"Found {data} file(s).")
+                    elif kind == "refresh_register":
+                        self._load_and_verify_register()
+                except Exception as handler_err:
+                    import traceback
+                    err_msg = traceback.format_exc()
+                    self._log(f"UI ERROR [{kind}]: {handler_err}", "warn")
+                    logging.error(f"UI queue handler error: {err_msg}")
+        except Exception as poll_err:
+            logging.error(f"Poll loop crashed: {poll_err}")
+        finally:
+            # ALWAYS reschedule — even after a crash
+            self.after(200, self._poll_ui_queue)
 
     def _on_close(self):
         self._stop_watching()
