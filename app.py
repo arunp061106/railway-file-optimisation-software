@@ -14,11 +14,42 @@ import time
 import queue
 import shutil
 import logging
+import ctypes
+import ctypes.wintypes
 from pathlib import Path
 from datetime import datetime
 
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+
+# ── Windows API helpers for forcing popup to front ─────────────────────────────
+def _flash_window(hwnd):
+    """Flash the taskbar button to alert the user (Windows only)."""
+    try:
+        FLASHW_ALL       = 0x00000003
+        FLASHW_TIMERNOFG = 0x0000000C
+        class FLASHWINFO(ctypes.Structure):
+            _fields_ = [
+                ("cbSize",    ctypes.wintypes.UINT),
+                ("hwnd",      ctypes.wintypes.HWND),
+                ("dwFlags",   ctypes.wintypes.DWORD),
+                ("uCount",    ctypes.wintypes.UINT),
+                ("dwTimeout", ctypes.wintypes.DWORD),
+            ]
+        fw = FLASHWINFO(ctypes.sizeof(FLASHWINFO), hwnd,
+                        FLASHW_ALL | FLASHW_TIMERNOFG, 8, 0)
+        ctypes.windll.user32.FlashWindowEx(ctypes.byref(fw))
+    except Exception:
+        pass
+
+def _force_window_front(hwnd):
+    """Force a window to the foreground using Windows API."""
+    try:
+        ctypes.windll.user32.SetForegroundWindow(hwnd)
+        ctypes.windll.user32.BringWindowToTop(hwnd)
+        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+    except Exception:
+        pass
 
 # ── Optional tray ──────────────────────────────────────────────────────────────
 try:
@@ -138,9 +169,10 @@ class RailwayApp(tk.Tk):
         self._build_ui()
         self._poll_ui_queue()
         self._refresh_status()
-        
-        # Schedule initial register loading shortly after mainloop starts
+
+        # Auto-start watching after UI is ready (500ms delay)
         self.after(500, self._load_and_verify_register)
+        self.after(800, self._auto_start_if_configured)
 
     def _setup_styles(self):
         style = ttk.Style()
@@ -326,6 +358,17 @@ class RailwayApp(tk.Tk):
             color="#7C3AED",
             color2="#6D28D9",
             command=self._open_excel
+        ).pack(fill="x", pady=(0, 10))
+
+        # TEST POPUP BUTTON
+        self._big_button(
+            btn_card,
+            icon="🔔",
+            title="Test Popup Alert",
+            subtitle="Verify the file detection popup\nworks on this machine",
+            color="#0E7490",
+            color2="#0C687E",
+            command=self._test_popup
         ).pack(fill="x")
 
         # ── Activity log ──────────────────────────────────────────────────────
@@ -809,11 +852,34 @@ class RailwayApp(tk.Tk):
     # ══════════════════════════════════════════════════════════════════════════
     # ACTIONS
     # ══════════════════════════════════════════════════════════════════════════
+    def _auto_start_if_configured(self):
+        """Auto-start watching on launch — always on by default."""
+        if not self.watching:
+            watch_folder = self.cfg["watch_folder"]
+            if os.path.isdir(watch_folder):
+                self._start_watching()
+                self._log("Auto-Organiser started automatically.", "ok")
+            else:
+                self._log("Auto-start skipped: watch folder not found. Please set folders first.", "warn")
+
     def _toggle_watch(self):
         if self.watching:
             self._stop_watching()
         else:
             self._start_watching()
+
+    def _test_popup(self):
+        """Show a test popup to verify the alert system works on this machine."""
+        import tempfile
+        # Create a dummy temp file for the test
+        tmp = Path(tempfile.gettempdir()) / "TEST_Railway_popup_demo.pdf"
+        tmp.write_text("test", encoding="utf-8")
+        fake_result = {
+            "category": "TEST CATEGORY",
+            "confidence": 0.99
+        }
+        self._show_confirm_dialog(str(tmp), tmp.name, fake_result)
+        self._log("Test popup launched — check if the popup appeared!", "info")
 
     def _start_watching(self):
         folder = self.cfg["watch_folder"]
@@ -926,33 +992,68 @@ class RailwayApp(tk.Tk):
         self._show_confirm_dialog(filepath, filename, result)
 
     def _show_confirm_dialog(self, filepath, filename, cat_result):
-        """Unmissable permission dialog — user MUST approve before anything happens."""
+        """Unmissable popup — forces itself to the front on Windows 10/11."""
         dest_folder = str(Path(self.cfg["base_folder"]) / cat_result["category"])
+        is_test = filename.startswith("TEST_Railway_popup_demo")
 
         dlg = tk.Toplevel(self)
-        dlg.title("PERMISSION REQUIRED — Railway File Organiser")
+        dlg.title("🔔 NEW FILE DETECTED — Railway File Organiser")
         dlg.configure(bg=C["bg"])
         dlg.resizable(False, False)
-        dlg.attributes("-topmost", True)
-        dlg.lift()
-        dlg.focus_force()
-        dlg.bell()   # System alert sound
 
-        w, h = 600, 480
+        w, h = 640, 520
         sw = self.winfo_screenwidth()
         sh = self.winfo_screenheight()
         dlg.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
-        # ── Top accent ───────────────────────────────────────────────────────
-        tk.Frame(dlg, bg=C["yellow"], height=6).pack(fill="x")
+        # ── Force to front using Windows API ─────────────────────────────────
+        def _force_to_front():
+            try:
+                dlg.update_idletasks()
+                hwnd = ctypes.windll.user32.FindWindowW(None, dlg.title())
+                if not hwnd:
+                    hwnd = int(dlg.frame(), 16)
+                _force_window_front(hwnd)
+                _flash_window(hwnd)
+                dlg.attributes("-topmost", True)
+                dlg.lift()
+                dlg.focus_force()
+            except Exception:
+                pass
+
+        # Try to force focus immediately, then again after 300ms and 800ms
+        dlg.after(50,  _force_to_front)
+        dlg.after(300, _force_to_front)
+        dlg.after(800, _force_to_front)
+
+        # Play system alert sound
+        try:
+            import winsound
+            winsound.MessageBeep(winsound.MB_ICONEXCLAMATION)
+        except Exception:
+            dlg.bell()
+
+        # ── Pulsing top stripe ────────────────────────────────────────────────
+        stripe_colors = [C["yellow"], "#F59E0B", C["yellow"]]
+        stripe = tk.Frame(dlg, bg=C["yellow"], height=8)
+        stripe.pack(fill="x")
+
+        def _pulse_stripe(i=0):
+            if dlg.winfo_exists():
+                stripe.config(bg=stripe_colors[i % len(stripe_colors)])
+                dlg.after(500, _pulse_stripe, i + 1)
+        _pulse_stripe()
 
         # ── Header ───────────────────────────────────────────────────────────
         hdr = tk.Frame(dlg, bg=C["bg"], padx=24, pady=14)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="  PERMISSION TO ORGANISE FILE",
-                 bg=C["bg"], fg=C["yellow"],
-                 font=("Segoe UI", 14, "bold")).pack(anchor="w")
-        tk.Label(hdr, text="Review where this file will be copied. Nothing happens until you approve.",
+        title_text = "🧪 TEST — POPUP IS WORKING!" if is_test else "🔔  NEW FILE DETECTED"
+        title_color = C["green"] if is_test else C["yellow"]
+        tk.Label(hdr, text=title_text,
+                 bg=C["bg"], fg=title_color,
+                 font=("Segoe UI", 15, "bold")).pack(anchor="w")
+        tk.Label(hdr,
+                 text="Review below and approve or skip. Nothing happens until you click YES.",
                  bg=C["bg"], fg=C["text2"],
                  font=("Segoe UI", 10)).pack(anchor="w", pady=(2, 0))
 
@@ -960,7 +1061,7 @@ class RailwayApp(tk.Tk):
 
         # ── File card ────────────────────────────────────────────────────────
         card = tk.Frame(dlg, bg=C["surface"], padx=20, pady=14,
-                         highlightbackground=C["yellow"], highlightthickness=1)
+                         highlightbackground=title_color, highlightthickness=2)
         card.pack(fill="x", padx=20, pady=14)
 
         tk.Label(card, text="FILE DETECTED",
@@ -969,7 +1070,7 @@ class RailwayApp(tk.Tk):
         tk.Label(card, text=display,
                  bg=C["surface"], fg="#FBBF24",
                  font=("Segoe UI", 11, "bold"),
-                 wraplength=540, justify="left").pack(anchor="w", pady=(3, 12))
+                 wraplength=580, justify="left").pack(anchor="w", pady=(3, 12))
 
         tk.Label(card, text="WILL BE COPIED TO",
                  bg=C["surface"], fg=C["text3"], font=FONT_BADGE).pack(anchor="w")
@@ -979,7 +1080,7 @@ class RailwayApp(tk.Tk):
         path_lbl = tk.Label(path_frame, text=dest_folder,
                             bg=C["surface2"], fg="#60A5FA",
                             font=("Consolas", 9),
-                            wraplength=540, justify="left")
+                            wraplength=580, justify="left")
         path_lbl.pack(anchor="w")
 
         # ── Category selector ────────────────────────────────────────────────
@@ -1000,51 +1101,85 @@ class RailwayApp(tk.Tk):
             path_lbl.config(text=new_dest)
         cat_var.trace_add("write", update_path)
 
-        tk.Label(sel, text="The original file will NOT be deleted. A copy is placed in the folder above.",
+        tk.Label(sel,
+                 text="✅  The original file will NOT be deleted. Only a copy is made.",
                  bg=C["bg"], fg=C["green"],
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 0))
 
+        # ── Countdown label ───────────────────────────────────────────────────
+        countdown_var = tk.StringVar(value="")
+        countdown_lbl = tk.Label(sel, textvariable=countdown_var,
+                                  bg=C["bg"], fg=C["text3"],
+                                  font=("Segoe UI", 9))
+        countdown_lbl.pack(anchor="w", pady=(4, 0))
+
         # ── Buttons ──────────────────────────────────────────────────────────
-        btn_frame = tk.Frame(dlg, bg=C["bg"], padx=20, pady=18)
+        btn_frame = tk.Frame(dlg, bg=C["bg"], padx=20, pady=16)
         btn_frame.pack(fill="x")
 
         def do_confirm():
             chosen = cat_var.get().strip() or cat_result["category"]
             final_dest = str(Path(self.cfg["base_folder"]) / chosen)
             dlg.destroy()
-            threading.Thread(
-                target=self._copy_and_log,
-                args=(filepath, filename, chosen, final_dest),
-                daemon=True
-            ).start()
+            if not is_test:
+                threading.Thread(
+                    target=self._copy_and_log,
+                    args=(filepath, filename, chosen, final_dest),
+                    daemon=True
+                ).start()
+            else:
+                self._log("TEST POPUP: Confirmed successfully! Popup is working.", "ok")
 
         def do_skip():
             dlg.destroy()
-            self._log(f"SKIPPED (user cancelled): {filename}", "warn")
+            if not is_test:
+                self._log(f"SKIPPED: {filename}", "warn")
+            else:
+                self._log("TEST POPUP: Skipped. Popup is working correctly.", "ok")
 
-        tk.Button(btn_frame,
-                  text="YES — Copy & Organise",
-                  bg=C["green"], fg="#0A0F1E",
-                  font=("Segoe UI", 12, "bold"),
-                  relief="flat", padx=22, pady=10,
+        # Big YES button
+        yes_btn = tk.Button(btn_frame,
+                  text="  ✅  YES — Copy & Organise  ",
+                  bg=C["green"], fg="#FFFFFF",
+                  font=("Segoe UI", 13, "bold"),
+                  relief="flat", padx=24, pady=13,
                   cursor="hand2",
-                  command=do_confirm).pack(side="left", padx=(0, 12))
+                  command=do_confirm)
+        yes_btn.pack(side="left", padx=(0, 14))
+
+        # Hover effect on YES
+        yes_btn.bind("<Enter>", lambda e: yes_btn.config(bg="#15803D"))
+        yes_btn.bind("<Leave>", lambda e: yes_btn.config(bg=C["green"]))
 
         tk.Button(btn_frame,
-                  text="NO — Skip This File",
+                  text="NO — Skip",
                   bg=C["red"], fg=C["white"],
-                  font=("Segoe UI", 10, "bold"),
-                  relief="flat", padx=16, pady=10,
+                  font=("Segoe UI", 11, "bold"),
+                  relief="flat", padx=18, pady=13,
                   cursor="hand2",
                   command=do_skip).pack(side="left")
 
         tk.Label(btn_frame,
                  text="Closing this window = Skip",
                  bg=C["bg"], fg=C["text3"], font=FONT_SMALL
-                 ).pack(side="right")
+                 ).pack(side="right", pady=(8, 0))
+
+        # ── Auto-dismiss countdown (90 seconds) ───────────────────────────────
+        timeout_secs = [90]
+        def _tick():
+            if not dlg.winfo_exists():
+                return
+            s = timeout_secs[0]
+            countdown_var.set(f"Auto-skip in {s}s if no action taken")
+            if s <= 0:
+                do_skip()
+                return
+            timeout_secs[0] -= 1
+            dlg.after(1000, _tick)
+        _tick()
 
         dlg.protocol("WM_DELETE_WINDOW", do_skip)
-        dlg.grab_set()   # Block interaction with main window until user decides
+        dlg.grab_set()
 
     def _copy_and_log(self, filepath, filename, category, dest_folder_path):
         """Copy file and log. Shows clear success OR error popup after."""
