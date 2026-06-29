@@ -1507,89 +1507,115 @@ class RailwayApp(tk.Tk):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# FIRST-RUN SETUP
+# FIRST-RUN SETUP — Toplevel on same root. Only ONE tk.Tk() ever created!
 # ══════════════════════════════════════════════════════════════════════════════
-def first_run(cfg: Config):
-    """Show first-run folder picker if not configured."""
+def first_run(parent_app, cfg):
+    """
+    CRITICAL FIX: Uses tk.Toplevel instead of tk.Tk().
+    Creating a second tk.Tk() breaks Tkinter internals and silently kills
+    ALL subsequent Toplevel popups. There must be exactly ONE tk.Tk().
+    """
     if os.path.isdir(cfg["watch_folder"]) and cfg["base_folder"]:
         return
 
-    dlg = tk.Tk()
-    dlg.title("Railway File Organiser — Setup")
+    dlg = tk.Toplevel(parent_app)
+    dlg.title("Railway File Organiser — First Time Setup")
     dlg.configure(bg=C["bg"])
-    dlg.geometry("540x360")
+    dlg.geometry("560x400")
     dlg.resizable(False, False)
+    dlg.attributes("-topmost", True)
 
-    sw = dlg.winfo_screenwidth()
-    sh = dlg.winfo_screenheight()
-    dlg.geometry(f"540x360+{(sw-540)//2}+{(sh-360)//2}")
+    sw = parent_app.winfo_screenwidth()
+    sh = parent_app.winfo_screenheight()
+    dlg.geometry(f"560x400+{(sw-560)//2}+{(sh-400)//2}")
 
     tk.Frame(dlg, bg=C["accent"], height=5).pack(fill="x")
 
-    tk.Label(dlg, text="Welcome to Railway File Organiser",
+    hdr = tk.Frame(dlg, bg=C["bg"], padx=24, pady=16)
+    hdr.pack(fill="x")
+    tk.Label(hdr, text="Welcome to Railway File Organiser",
              bg=C["bg"], fg=C["text"],
-             font=("Segoe UI", 15, "bold"),
-             pady=20, padx=24).pack(anchor="w")
-    tk.Label(dlg, text="Let's set up your two folders to get started.",
+             font=("Segoe UI", 15, "bold")).pack(anchor="w")
+    tk.Label(hdr, text="Select two folders below. This is a one-time setup.",
              bg=C["bg"], fg=C["text2"],
-             font=("Segoe UI", 11), padx=24).pack(anchor="w")
+             font=("Segoe UI", 10)).pack(anchor="w", pady=(4, 0))
 
-    watch_var = tk.StringVar(value=cfg["watch_folder"])
-    base_var  = tk.StringVar(value=cfg["base_folder"])
+    tk.Frame(dlg, bg=C["border"], height=1).pack(fill="x", padx=20)
 
-    def row(label, hint, var, cmd):
-        f = tk.Frame(dlg, bg=C["bg"], padx=24, pady=6)
+    watch_var = tk.StringVar(value=str(Path.home() / "Downloads"))
+    base_var  = tk.StringVar(value=str(Path.home() / "Documents" / "Railway Files"))
+
+    def folder_row(label, hint, var, cmd):
+        f = tk.Frame(dlg, bg=C["bg"], padx=24, pady=8)
         f.pack(fill="x")
         tk.Label(f, text=label, bg=C["bg"], fg=C["text"],
                  font=("Segoe UI", 10, "bold")).pack(anchor="w")
         tk.Label(f, text=hint, bg=C["bg"], fg=C["text3"],
                  font=FONT_SMALL).pack(anchor="w")
         r = tk.Frame(f, bg=C["bg"])
-        r.pack(fill="x", pady=4)
+        r.pack(fill="x", pady=(4, 0))
         tk.Entry(r, textvariable=var, bg=C["surface2"], fg=C["text"],
                  relief="flat", font=("Segoe UI", 9),
                  insertbackground=C["text"]).pack(side="left", fill="x",
-                                                   expand=True, ipady=6, padx=(0, 8))
+                                                   expand=True, ipady=7, padx=(0, 8))
         tk.Button(r, text="Browse", bg=C["border"], fg=C["text"],
-                  font=FONT_SMALL, relief="flat", padx=10, pady=4,
+                  font=FONT_SMALL, relief="flat", padx=10, pady=5,
                   cursor="hand2", command=cmd).pack(side="left")
 
-    row("Watch Folder", "Usually your Downloads folder",
-        watch_var,
-        lambda: watch_var.set(filedialog.askdirectory(title="Select Watch Folder",
-                               initialdir=watch_var.get()) or watch_var.get()))
-    row("Organised Files Folder", "Where sorted files will be stored",
-        base_var,
-        lambda: base_var.set(filedialog.askdirectory(title="Select Organised Files Folder",
-                              initialdir=str(Path.home())) or base_var.get()))
+    folder_row("Watch Folder — where downloads appear",
+               "Usually your Downloads folder",
+               watch_var,
+               lambda: watch_var.set(
+                   filedialog.askdirectory(title="Select Watch Folder",
+                                           initialdir=watch_var.get(),
+                                           parent=dlg) or watch_var.get()))
+
+    folder_row("Organised Files Folder — where sorted files go",
+               "e.g. Documents\\Railway Files",
+               base_var,
+               lambda: base_var.set(
+                   filedialog.askdirectory(title="Select Organised Files Folder",
+                                           initialdir=str(Path.home()),
+                                           parent=dlg) or base_var.get()))
 
     def finish():
-        cfg["watch_folder"] = watch_var.get().strip()
-        cfg["base_folder"]  = base_var.get().strip()
+        w = watch_var.get().strip()
+        b = base_var.get().strip()
+        if not w or not b:
+            messagebox.showwarning("Required", "Please select both folders.", parent=dlg)
+            return
+        cfg["watch_folder"] = w
+        cfg["base_folder"]  = b
         cfg.save()
-        Path(cfg["base_folder"]).mkdir(parents=True, exist_ok=True)
+        Path(b).mkdir(parents=True, exist_ok=True)
         dlg.destroy()
+        parent_app.after(300, parent_app._auto_start_if_configured)
 
-    btn = tk.Frame(dlg, bg=C["bg"], padx=24, pady=20)
-    btn.pack(fill="x")
-    tk.Button(btn, text="Get Started  ➜",
-              bg=C["green"], fg=C["bg"],
+    btn_frame = tk.Frame(dlg, bg=C["bg"], padx=24, pady=20)
+    btn_frame.pack(fill="x")
+    tk.Button(btn_frame, text="  Get Started  \u27a4",
+              bg=C["green"], fg="#FFFFFF",
               font=("Segoe UI", 12, "bold"),
               relief="flat", padx=24, pady=10,
               cursor="hand2", command=finish).pack(side="left")
+    tk.Label(btn_frame, text="You can change these later in the app.",
+             bg=C["bg"], fg=C["text3"],
+             font=FONT_SMALL).pack(side="left", padx=16)
 
-    dlg.mainloop()
+    dlg.protocol("WM_DELETE_WINDOW", lambda: None)
+    dlg.grab_set()
+    # Do NOT call dlg.mainloop() — parent mainloop is already running!
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # ENTRY POINT
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    cfg = Config()
-    if not os.path.isdir(cfg["watch_folder"]) or not cfg["base_folder"]:
-        first_run(cfg)
-
+    # ONLY ONE tk.Tk() — all dialogs must be tk.Toplevel on this root
     app = RailwayApp()
+    cfg = app.cfg
+    if (not os.path.isdir(cfg["watch_folder"])) or (not cfg["base_folder"]):
+        app.after(200, lambda: first_run(app, cfg))
     app.mainloop()
 
 
